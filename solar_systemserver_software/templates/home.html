@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>太阳能光伏自动控温系统设计</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0B1120; color: #94A3B8; user-select: none;}
+        .data-font { font-family: 'Roboto Mono', monospace; }
+        .panel { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .expand-btn { transition: all 0.2s; cursor: pointer; }
+        .expand-btn:hover { color: #F8FAFC; transform: scale(1.1); }
+        .btn-radio.active { background-color: #3B82F6; color: white; border-color: #2563EB; }
+        .btn-radio { border: 1px solid #334155; color: #94A3B8; transition: all 0.2s; }
+        .btn-hold { transition: all 0.1s; border: 1px solid #334155; }
+        .btn-hold:active:not(:disabled) { transform: scale(0.96); background-color: #3B82F6; color: white; box-shadow: 0 0 15px rgba(59,130,246,0.5); border-color: #60A5FA; }
+        .btn-hold:disabled { opacity: 0.3; cursor: not-allowed; }
+        .led-active { background-color: #06B6D4; box-shadow: 0 0 10px #06B6D4; }
+        .led-idle { background-color: #334155; }
+    </style>
+</head>
+<body class="min-h-screen p-6 flex flex-col gap-5 relative">
+
+    <header class="flex justify-between items-end pb-3 border-b border-slate-800">
+        <div>
+            <h1 class="text-3xl font-semibold text-slate-100 tracking-tight">太阳能光伏自动控温系统控制面板</h1>
+            <p class="text-sm mt-1 text-slate-400">   PV control management</p>
+        </div>
+        <div class="text-right">
+            <div class="flex items-center gap-2 justify-end">
+                <span id="status-dot" class="w-3 h-3 rounded-full bg-slate-500"></span>
+                <span id="status-text" class="text-slate-500 font-medium text-sm">Connecting DB...</span>
+            </div>
+            <p class="text-xs mt-1 data-font" id="timestamp">--:--:--</p>
+        </div>
+    </header>
+
+    <!-- 执行器与控制区 -->
+    <div class="panel p-4 flex flex-col md:flex-row justify-between items-center gap-6 border-t-4 border-t-emerald-500">
+        <div class="flex items-center gap-4">
+            <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            <div>
+                <h3 class="text-sm font-semibold text-slate-200">冷却降温系统控制端</h3>
+                <p class="text-xs text-slate-400">Mode Selection & Manual Override</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-6">
+            <div class="flex items-center gap-2 border-r border-slate-700 pr-6">
+                <span id="pump-led" class="w-4 h-4 rounded-full led-idle transition-all duration-300"></span>
+                <span class="text-sm font-mono tracking-wide" id="pump-status-text">PUMP IDLE</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex bg-slate-900 rounded-md p-1 border border-slate-700">
+                    <button id="btn-auto" onclick="setMode('auto')" class="btn-radio active px-4 py-1 text-xs font-semibold rounded cursor-pointer">AUTO</button>
+                    <button id="btn-manual" onclick="setMode('manual')" class="btn-radio px-4 py-1 text-xs font-semibold rounded cursor-pointer">MANUAL</button>
+                </div>
+                <button id="btn-spray" disabled class="btn-hold bg-slate-800 text-slate-300 px-6 py-1.5 rounded-md text-sm font-bold flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    HOLD TO SPRAY
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心指标区 -->
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div class="panel p-4"><h3 class="text-xs uppercase text-slate-400">输出功率</h3><div class="mt-1 flex items-baseline gap-2"><span class="text-2xl font-bold text-blue-400 data-font" id="kpi-power">--</span><span class="text-xs">W</span></div></div>
+        <div class="panel p-4"><h3 class="text-xs uppercase text-slate-400">端电压</h3><div class="mt-1 flex items-baseline gap-2"><span class="text-2xl font-bold text-purple-400 data-font" id="kpi-voltage">--</span><span class="text-xs">V</span></div></div>
+        <div class="panel p-4"><h3 class="text-xs uppercase text-slate-400">输出电流</h3><div class="mt-1 flex items-baseline gap-2"><span class="text-2xl font-bold text-cyan-400 data-font" id="kpi-current">--</span><span class="text-xs">A</span></div></div>
+        <div class="panel p-4"><h3 class="text-xs uppercase text-slate-400">环境照度</h3><div class="mt-1 flex items-baseline gap-2"><span class="text-2xl font-bold text-yellow-400 data-font" id="kpi-lux">--</span><span class="text-xs">Lx</span></div></div>
+        <div class="panel p-4"><h3 class="text-xs uppercase text-slate-400">光伏表面均温</h3><div class="mt-1 flex items-baseline gap-2"><span class="text-2xl font-bold text-rose-400 data-font" id="kpi-temp">--</span><span class="text-xs">°C</span></div></div>
+        <!-- 新增: 特殊标识的主控芯片温度 -->
+        <div class="panel p-4 border-l-4 border-l-amber-500 bg-amber-500/5">
+            <h3 class="text-xs font-semibold uppercase text-amber-500 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                STM32 MCU
+            </h3>
+            <div class="mt-1 flex items-baseline gap-2"><span class="text-2xl font-bold text-amber-400 data-font" id="kpi-mcu">--</span><span class="text-xs text-amber-500/70">°C</span></div>
+        </div>
+    </div>
+
+    <!-- 图表展示区 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
+        <div class="panel p-5 flex flex-col relative">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2"><svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>电气输出瞬态响应</h2>
+                <svg onclick="openModal('elec')" class="w-4 h-4 text-slate-400 expand-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+            </div>
+            <div id="elecChart" class="flex-1 min-h-[300px]"></div>
+        </div>
+
+        <div class="panel p-5 flex flex-col relative">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"></path></svg>
+                    分布式温度场监控
+                    <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded ml-2 font-normal border border-slate-700">含 STM32 芯片探针分析</span>
+                </h2>
+                <svg onclick="openModal('temp')" class="w-4 h-4 text-slate-400 expand-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+            </div>
+            <div id="tempChart" class="flex-1 min-h-[300px]"></div>
+        </div>
+    </div>
+
+    <!-- 全屏数据模态框 -->
+    <div id="dataModal" class="fixed inset-0 z-50 flex items-center justify-center bg-[#05080f]/90 backdrop-blur-sm hidden opacity-0 transition-opacity duration-300">
+        <div class="panel w-11/12 h-[90vh] flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-6">
+                <h2 id="modalTitle" class="text-2xl font-semibold text-slate-100">数据库完整历史分析</h2>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white transition-colors"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div id="modalChart" class="flex-1 w-full h-full"></div>
+        </div>
+    </div>
+
+    <script>
+        // === 系统状态 ===
+        const MAX_HOME_POINTS = 50;
+        const API_BASE = '/api';
+        
+        let clientMode = 'auto';
+        let lastDataId = 0; // 【核心更新】数据游标，记录当前获取到的最新一条数据的 ID
+
+        // 本地前端缓存，由于有了游标机制，不需要切片覆盖，只需要无脑 Push 即可
+        const db_local = {
+            time: [], spraying: [],
+            power: [], voltage: [], current: [],
+            t1: [], t2: [], t3: [], t4: [], stm32: []
+        };
+
+        const elecChart = echarts.init(document.getElementById('elecChart'));
+        const tempChart = echarts.init(document.getElementById('tempChart'));
+        const modalChart = echarts.init(document.getElementById('modalChart'));
+        let currentModalType = null;
+
+        const commonOpt = {
+            backgroundColor: 'transparent', textStyle: { fontFamily: 'Inter' },
+            tooltip: { trigger: 'axis', axisPointer: {type: 'cross', label: {backgroundColor: '#1E293B'}}, backgroundColor: 'rgba(15, 23, 42, 0.9)', borderColor: '#334155', textStyle: { color: '#E2E8F0' } },
+            legend: { textStyle: { color: '#94A3B8' }, top: 0 },
+            grid: { left: '3%', right: '4%', bottom: '3%', top: '15%', containLabel: true },
+            xAxis: { type: 'category', boundaryGap: false, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#64748B', fontFamily: 'Roboto Mono' } }
+        };
+
+        const elecOpt = { ...commonOpt, yAxis: [
+            { type: 'value', name: 'P(W)', splitLine: { lineStyle: { color: '#1E293B', type: 'dashed' } }, axisLabel: { color: '#60A5FA' }, nameTextStyle: { color: '#60A5FA' } },
+            { type: 'value', name: 'V/I', splitLine: { show: false }, axisLabel: { color: '#A78BFA' }, nameTextStyle: { color: '#A78BFA' } }
+        ]};
+        const tempOpt = { ...commonOpt, yAxis: { type: 'value', name: 'Temp(°C)', scale: true, splitLine: { lineStyle: { color: '#1E293B', type: 'dashed' } }, axisLabel: { color: '#FB7185' }, nameTextStyle: { color: '#FB7185' } }};
+
+        const getElecSeries = (p, v, i) => [
+            { name: '功率', type: 'line', smooth: true, yAxisIndex: 0, showSymbol: false, itemStyle: { color: '#3B82F6' }, lineStyle: { width: 2 }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(59,130,246,0.3)' }, { offset: 1, color: 'rgba(59,130,246,0)' }]) }, data: p },
+            { name: '电压', type: 'line', smooth: true, yAxisIndex: 1, showSymbol: false, itemStyle: { color: '#A855F7' }, lineStyle: { width: 1.5, type: 'dashed' }, data: v },
+            { name: '电流', type: 'line', smooth: true, yAxisIndex: 1, showSymbol: false, itemStyle: { color: '#06B6D4' }, lineStyle: { width: 1.5, type: 'dotted' }, data: i }
+        ];
+
+        // 【核心更新】突出了 STM32 探针的样式设定 (虚线、更粗、耀眼琥珀色)
+        const getTempSeries = (t1, t2, t3, t4, stm32, timeArr, sprayArr) => {
+            let markAreas = [];
+            let startT = null;
+            for (let i = 0; i < timeArr.length; i++) {
+                if (sprayArr[i] && startT === null) startT = timeArr[i];
+                else if (!sprayArr[i] && startT !== null) { markAreas.push([{ xAxis: startT }, { xAxis: timeArr[i - 1] }]); startT = null; }
+            }
+            if (startT !== null) markAreas.push([{ xAxis: startT }, { xAxis: timeArr[timeArr.length - 1] }]);
+
+            return [
+                { name: '板面 T1', type: 'line', smooth: true, showSymbol: false, itemStyle: { color: '#F43F5E' }, data: t1,
+                  markArea: { itemStyle: { color: 'rgba(6, 182, 212, 0.15)' }, data: markAreas, label: {show:true, position:'insideTop', color:'#06B6D4', formatter:'Cooling ON'} }
+                },
+                { name: '板面 T2', type: 'line', smooth: true, showSymbol: false, itemStyle: { color: '#EC4899' }, data: t2 },
+                { name: '板面 T3', type: 'line', smooth: true, showSymbol: false, itemStyle: { color: '#D946EF' }, data: t3 },
+                { name: '板面 T4', type: 'line', smooth: true, showSymbol: false, itemStyle: { color: '#8B5CF6' }, data: t4 },
+                // 特殊化 STM32 温度显示
+                { name: '芯片 STM32', type: 'line', smooth: true, showSymbol: false, 
+                  itemStyle: { color: '#F59E0B' }, 
+                  lineStyle: { width: 2.5, type: 'dashed', shadowColor: 'rgba(245, 158, 11, 0.5)', shadowBlur: 10 }, 
+                  data: stm32 }
+            ];
+        };
+
+        // === 增量轮询同步机制 (SQL 数据抓取) ===
+        async function fetchSensorData() {
+            try {
+                const res = await fetch(`${API_BASE}/data?last_id=${lastDataId}`);
+                if (!res.ok) throw new Error();
+                const newRecords = await res.json();
+                
+                document.getElementById('status-dot').className = "w-3 h-3 rounded-full bg-emerald-500 animate-pulse";
+                document.getElementById('status-text').className = "text-emerald-500 font-medium text-sm";
+                document.getElementById('status-text').innerText = "DB Synced";
+
+                // 如果没有新数据，直接跳过
+                if(newRecords.length === 0) return;
+
+                // 批量处理新增的数据
+                let latestRecord = null;
+                newRecords.forEach(data => {
+                    db_local.time.push(data.timestamp);
+                    db_local.spraying.push(data.is_spraying);
+                    db_local.power.push(data.power); db_local.voltage.push(data.voltage); db_local.current.push(data.current);
+                    db_local.t1.push(data.t1); db_local.t2.push(data.t2); db_local.t3.push(data.t3); db_local.t4.push(data.t4); 
+                    db_local.stm32.push(data.stm32_temp);
+                    lastDataId = data.id; // 更新游标
+                    latestRecord = data;
+                });
+
+                // 更新界面
+                updateUI(latestRecord);
+                updateCharts();
+                
+            } catch (err) {
+                document.getElementById('status-dot').className = "w-3 h-3 rounded-full bg-rose-600";
+                document.getElementById('status-text').className = "text-rose-600 font-medium text-sm";
+                document.getElementById('status-text').innerText = "DB Disconnected";
+            }
+        }
+
+        async function sendCommand(cmdData) {
+            try { await fetch(`${API_BASE}/control`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cmdData) }); } 
+            catch (err) { console.error(err); }
+        }
+
+        // === UI 更新逻辑 ===
+        function updateUI(data) {
+            document.getElementById('timestamp').innerText = data.timestamp;
+            document.getElementById('kpi-power').innerText = data.power.toFixed(2);
+            document.getElementById('kpi-voltage').innerText = data.voltage.toFixed(2);
+            document.getElementById('kpi-current').innerText = data.current.toFixed(2);
+            document.getElementById('kpi-lux').innerText = data.illuminance.toFixed(0);
+            
+            const avgPanelTemp = (data.t1 + data.t2 + data.t3 + data.t4) / 4;
+            document.getElementById('kpi-temp').innerText = avgPanelTemp.toFixed(1);
+            document.getElementById('kpi-mcu').innerText = data.stm32_temp.toFixed(1); // 独立显示MCU温度
+
+            const led = document.getElementById('pump-led');
+            const pText = document.getElementById('pump-status-text');
+            if (data.is_spraying) {
+                led.className = "w-4 h-4 rounded-full led-active";
+                pText.className = "text-sm font-mono font-bold text-cyan-400 tracking-wide animate-pulse";
+                pText.innerText = "COOLING ACTIVE";
+            } else {
+                led.className = "w-4 h-4 rounded-full led-idle";
+                pText.className = "text-sm font-mono tracking-wide text-slate-500";
+                pText.innerText = "PUMP IDLE";
+            }
+            if (data.mode !== clientMode) setMode(data.mode);
+        }
+
+        function updateCharts() {
+            // 主页固定显示最新 50 条切片
+            const rTime = db_local.time.slice(-MAX_HOME_POINTS);
+            const rSpray = db_local.spraying.slice(-MAX_HOME_POINTS);
+
+            elecChart.setOption({ ...elecOpt, xAxis: { ...elecOpt.xAxis, data: rTime },
+                series: getElecSeries(db_local.power.slice(-MAX_HOME_POINTS), db_local.voltage.slice(-MAX_HOME_POINTS), db_local.current.slice(-MAX_HOME_POINTS))
+            });
+
+            tempChart.setOption({ ...tempOpt, xAxis: { ...tempOpt.xAxis, data: rTime },
+                series: getTempSeries(
+                    db_local.t1.slice(-MAX_HOME_POINTS), db_local.t2.slice(-MAX_HOME_POINTS), db_local.t3.slice(-MAX_HOME_POINTS), 
+                    db_local.t4.slice(-MAX_HOME_POINTS), db_local.stm32.slice(-MAX_HOME_POINTS), rTime, rSpray)
+            });
+
+            if (currentModalType) updateModalData();
+        }
+
+        // === 交互行为绑定 ===
+        function setMode(mode) {
+            clientMode = mode;
+            document.getElementById('btn-auto').className = `btn-radio px-4 py-1 text-xs font-semibold rounded ${mode==='auto'?'active':''}`;
+            document.getElementById('btn-manual').className = `btn-radio px-4 py-1 text-xs font-semibold rounded ${mode==='manual'?'active':''}`;
+            document.getElementById('btn-spray').disabled = (mode === 'auto');
+            sendCommand({ mode: mode });
+        }
+        const btnSpray = document.getElementById('btn-spray');
+        const startSpray = () => { if(clientMode === 'manual') sendCommand({ spray: true }); };
+        const stopSpray = () => { if(clientMode === 'manual') sendCommand({ spray: false }); };
+        btnSpray.addEventListener('mousedown', startSpray); btnSpray.addEventListener('mouseup', stopSpray); btnSpray.addEventListener('mouseleave', stopSpray);
+        btnSpray.addEventListener('touchstart', (e)=>{ e.preventDefault(); startSpray(); }); btnSpray.addEventListener('touchend', (e)=>{ e.preventDefault(); stopSpray(); });
+
+        // === 模态框逻辑 ===
+        const modalEl = document.getElementById('dataModal');
+        const zoomOpts = { dataZoom: [{ type: 'inside' }, { type: 'slider', textStyle: { color: '#94A3B8' }, borderColor: '#334155' }], grid: { bottom: '15%' }};
+        function openModal(type) {
+            currentModalType = type; modalEl.classList.remove('hidden');
+            setTimeout(() => {
+                modalEl.classList.remove('opacity-0'); modalChart.resize();
+                if (type === 'elec') {
+                    document.getElementById('modalTitle').innerText = '数据库完整记录 - 电气瞬态响应';
+                    modalChart.setOption({ ...elecOpt, ...zoomOpts }, true);
+                } else {
+                    document.getElementById('modalTitle').innerText = '数据库完整记录 - 表面温度场与STM32发热监控';
+                    modalChart.setOption({ ...tempOpt, ...zoomOpts }, true);
+                }
+                updateModalData();
+            }, 50);
+        }
+        function updateModalData() {
+            if (currentModalType === 'elec') modalChart.setOption({ xAxis: { data: db_local.time }, series: getElecSeries(db_local.power, db_local.voltage, db_local.current) });
+            else modalChart.setOption({ xAxis: { data: db_local.time }, series: getTempSeries(db_local.t1, db_local.t2, db_local.t3, db_local.t4, db_local.stm32, db_local.time, db_local.spraying) });
+        }
+        function closeModal() { modalEl.classList.add('opacity-0'); setTimeout(() => { modalEl.classList.add('hidden'); currentModalType = null; modalChart.clear(); }, 300); }
+
+        setInterval(fetchSensorData, 1500); // 轮询拉取增量
+        fetchSensorData(); // 初始拉取 (last_id=0，将返回数据库最新 50 条)
+        window.addEventListener('resize', () => { elecChart.resize(); tempChart.resize(); if(currentModalType) modalChart.resize(); });
+    </script>
+</body>
+</html>
